@@ -14,7 +14,8 @@
     DTDOverlayWindow *_window;
     DTDFloatingDotView *_dot;
     UIViewController *_rootController;
-    BOOL _started;
+    UIWindowScene *_windowScene;
+    BOOL _observersInstalled;
     BOOL _injecting;
 }
 
@@ -27,40 +28,178 @@
     return instance;
 }
 
+- (UIWindowScene *)foregroundWindowScene {
+    UIApplication *application = UIApplication.sharedApplication;
+    UIWindowScene *fallback = nil;
+
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in application.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            if (!fallback) fallback = windowScene;
+
+            if (scene.activationState == UISceneActivationStateForegroundActive &&
+                windowScene.screen == UIScreen.mainScreen) {
+                return windowScene;
+            }
+        }
+
+        for (UIWindow *existingWindow in application.windows) {
+            if (existingWindow.windowScene && existingWindow.screen == UIScreen.mainScreen) {
+                if (!fallback) fallback = existingWindow.windowScene;
+                if (!existingWindow.hidden && existingWindow.alpha > 0.01) {
+                    return existingWindow.windowScene;
+                }
+            }
+        }
+    }
+
+    return fallback;
+}
+
+- (CGRect)boundsForScene:(UIWindowScene *)scene {
+    if (scene) {
+        CGRect bounds = scene.coordinateSpace.bounds;
+        if (!CGRectIsEmpty(bounds)) return bounds;
+    }
+    return UIScreen.mainScreen.bounds;
+}
+
+- (void)destroyOverlay {
+    _dot.delegate = nil;
+    [_dot removeFromSuperview];
+    _dot = nil;
+
+    _window.hidden = YES;
+    _window.rootViewController = nil;
+    _window = nil;
+    _rootController = nil;
+    _windowScene = nil;
+}
+
+- (BOOL)ensureOverlayVisible {
+    NSAssert(NSThread.isMainThread, @"DoubleTapDot overlay must be created on main thread");
+
+    UIWindowScene *scene = [self foregroundWindowScene];
+    if (!scene) {
+        NSLog(@"[DoubleTapDot] UIWindowScene not ready yet");
+        return NO;
+    }
+
+    if (_window && _windowScene != scene) {
+        [self destroyOverlay];
+    }
+
+    if (!_window) {
+        CGRect bounds = [self boundsForScene:scene];
+
+        if (@available(iOS 13.0, *)) {
+            _window = [[DTDOverlayWindow alloc] initWithWindowScene:scene];
+        } else {
+            _window = [[DTDOverlayWindow alloc] initWithFrame:bounds];
+        }
+
+        _windowScene = scene;
+        _window.frame = bounds;
+        _window.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _window.backgroundColor = UIColor.clearColor;
+        _window.opaque = NO;
+        _window.windowLevel = UIWindowLevelAlert + 10000.0;
+        _window.userInteractionEnabled = YES;
+
+        _rootController = [UIViewController new];
+        _rootController.view.frame = bounds;
+        _rootController.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _rootController.view.backgroundColor = UIColor.clearColor;
+        _rootController.view.userInteractionEnabled = YES;
+        _window.rootViewController = _rootController;
+
+        DTDPreferences *prefs = DTDPreferences.shared;
+        CGFloat size = prefs.dotSize;
+        _dot = [[DTDFloatingDotView alloc] initWithFrame:CGRectMake(0, 0, size, size)];
+        _dot.delegate = self;
+        [_rootController.view addSubview:_dot];
+        _window.floatingDot = _dot;
+
+        _window.hidden = NO;
+        _window.alpha = 1.0;
+
+        NSLog(@"[DoubleTapDot] overlay created, scene=%@ bounds=%@",
+              scene,
+              NSStringFromCGRect(bounds));
+    } else {
+        _window.hidden = NO;
+        _window.alpha = 1.0;
+    }
+
+    [self applyCurrentPreferences];
+    return YES;
+}
+
+- (void)scheduleEnsureAttempt:(NSInteger)attempt {
+    if (attempt >= 12) return;
+
+    NSTimeInterval delay = (attempt == 0) ? 0.5 : 1.5;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        BOOL ready = [self ensureOverlayVisible];
+        if (!ready) {
+            [self scheduleEnsureAttempt:attempt + 1];
+        }
+    });
+}
+
 - (void)start {
-    if (_started) return;
-    _started = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self->_observersInstalled) {
+            self->_observersInstalled = YES;
 
-    CGRect screenBounds = UIScreen.mainScreen.bounds;
-    _window = [[DTDOverlayWindow alloc] initWithFrame:screenBounds];
-    _window.backgroundColor = UIColor.clearColor;
-    _window.windowLevel = UIWindowLevelAlert + 1000.0;
-    _window.hidden = NO;
+            NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+            [center addObserver:self
+                       selector:@selector(sceneOrApplicationBecameActive:)
+                           name:UIApplicationDidBecomeActiveNotification
+                         object:nil];
 
-    _rootController = [UIViewController new];
-    _rootController.view.backgroundColor = UIColor.clearColor;
-    _rootController.view.userInteractionEnabled = YES;
-    _window.rootViewController = _rootController;
+            if (@available(iOS 13.0, *)) {
+                [center addObserver:self
+                           selector:@selector(sceneOrApplicationBecameActive:)
+                               name:UISceneDidActivateNotification
+                             object:nil];
+                [center addObserver:self
+                           selector:@selector(sceneOrApplicationBecameActive:)
+                               name:UISceneWillEnterForegroundNotification
+                             object:nil];
+            }
 
-    DTDPreferences *prefs = DTDPreferences.shared;
-    CGFloat size = prefs.dotSize;
-    _dot = [[DTDFloatingDotView alloc] initWithFrame:CGRectMake(0, 0, size, size)];
-    _dot.delegate = self;
-    [_rootController.view addSubview:_dot];
-    _window.floatingDot = _dot;
+            [center addObserver:self
+                       selector:@selector(screenGeometryChanged:)
+                           name:UIDeviceOrientationDidChangeNotification
+                         object:nil];
+            [UIDevice.currentDevice beginGeneratingDeviceOrientationNotifications];
+        }
 
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(screenGeometryChanged:)
-                                                 name:UIDeviceOrientationDidChangeNotification
-                                               object:nil];
-    [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
+        [self ensureOverlayVisible];
+        [self scheduleEnsureAttempt:0];
+    });
+}
 
-    [self reloadPreferences];
+- (void)sceneOrApplicationBecameActive:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self ensureOverlayVisible];
+    });
 }
 
 - (void)screenGeometryChanged:(NSNotification *)notification {
     dispatch_async(dispatch_get_main_queue(), ^{
-        self->_window.frame = UIScreen.mainScreen.bounds;
+        if (!self->_window) {
+            [self ensureOverlayVisible];
+            return;
+        }
+
+        CGRect bounds = [self boundsForScene:self->_windowScene];
+        self->_window.frame = bounds;
+        self->_rootController.view.frame = bounds;
         [self applySavedPosition];
     });
 }
@@ -78,8 +217,13 @@
 }
 
 - (void)applySavedPosition {
-    if (!_dot) return;
+    if (!_dot || !_rootController) return;
+
     CGRect bounds = _rootController.view.bounds;
+    if (CGRectIsEmpty(bounds)) {
+        bounds = [self boundsForScene:_windowScene];
+    }
+
     DTDPreferences *prefs = DTDPreferences.shared;
     CGPoint center;
 
@@ -89,18 +233,26 @@
     } else {
         center = [self defaultCenterForBounds:bounds dotSize:prefs.dotSize];
     }
+
     _dot.center = [self clampedCenter:center inBounds:bounds size:prefs.dotSize];
+}
+
+- (void)applyCurrentPreferences {
+    if (!_dot || !_window) return;
+
+    DTDPreferences *prefs = DTDPreferences.shared;
+    [_dot applySize:prefs.dotSize];
+    _dot.hidden = !prefs.enabled;
+    _window.hidden = NO;
+    [self applySavedPosition];
 }
 
 - (void)reloadPreferences {
     [DTDPreferences.shared reload];
-    DTDPreferences *prefs = DTDPreferences.shared;
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self->_dot applySize:prefs.dotSize];
-        self->_dot.hidden = !prefs.enabled;
-        self->_window.hidden = NO;
-        [self applySavedPosition];
+        if (![self ensureOverlayVisible]) return;
+        [self applyCurrentPreferences];
     });
 }
 
@@ -126,8 +278,11 @@
     _window.passThroughAllTouches = YES;
     dot.hidden = YES;
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
-        [[DTDHIDInjector shared] doubleTapAtNormalizedPoint:normalized intervalMs:interval completion:^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_MSEC)),
+                   dispatch_get_main_queue(), ^{
+        [[DTDHIDInjector shared] doubleTapAtNormalizedPoint:normalized
+                                                intervalMs:interval
+                                                completion:^{
             self->_window.passThroughAllTouches = NO;
             self->_dot.hidden = !DTDPreferences.shared.enabled;
             self->_injecting = NO;
@@ -149,9 +304,7 @@ static void DTDPreferencesChanged(CFNotificationCenterRef center,
 
 - (void)applicationDidFinishLaunching:(id)application {
     %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[DTDOverlayManager shared] start];
-    });
+    [[DTDOverlayManager shared] start];
 }
 
 %end
@@ -163,4 +316,8 @@ static void DTDPreferencesChanged(CFNotificationCenterRef center,
                                     CFSTR("com.crctdd.doubletapdot/ReloadPrefs"),
                                     NULL,
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[DTDOverlayManager shared] start];
+    });
 }
