@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Theos
-        uses: iossxx/theos-action@v1
+        uses: iossxx/theos-action@760b7475c8b98f4d8fd8d52735728e22186b2aeb
         with:
           theos-src: https://github.com/roothide/theos
           theos-sdks: https://github.com/theos/sdks
