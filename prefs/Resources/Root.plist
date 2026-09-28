@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>items</key>
+    <array>
+        <dict>
+            <key>cell</key>
+            <string>PSGroupCell</string>
+            <key>label</key>
+            <string>双击圆点</string>
+            <key>footerText</key>
+            <string>单击蓝点会在蓝点所在位置模拟双击。长按蓝点 1 秒后可拖动，松手自动保存位置。</string>
+        </dict>
+        <dict>
+            <key>cell</key>
+            <string>PSSwitchCell</string>
+            <key>label</key>
+            <string>启用插件</string>
+            <key>key</key>
+            <string>enabled</string>
+            <key>default</key>
+            <true/>
+        </dict>
+
+        <dict>
+            <key>cell</key>
+            <string>PSGroupCell</string>
+            <key>label</key>
+            <string>圆点设置</string>
+        </dict>
+        <dict>
+            <key>cell</key>
+            <string>PSSliderCell</string>
+            <key>label</key>
+            <string>圆点大小</string>
+            <key>key</key>
+            <string>dotSize</string>
+            <key>default</key>
+            <real>44</real>
+            <key>min</key>
+            <real>20</real>
+            <key>max</key>
+            <real>100</real>
+            <key>showValue</key>
+            <true/>
+        </dict>
+
+        <dict>
+            <key>cell</key>
+            <string>PSGroupCell</string>
+            <key>label</key>
+            <string>点击设置</string>
+            <key>footerText</key>
+            <string>双击间隔范围 1–300 ms，按 1 ms 保存。默认 30 ms。</string>
+        </dict>
+        <dict>
+            <key>cell</key>
+            <string>PSSliderCell</string>
+            <key>label</key>
+            <string>双击间隔（ms）</string>
+            <key>key</key>
+            <string>intervalMs</string>
+            <key>default</key>
+            <integer>30</integer>
+            <key>min</key>
+            <integer>1</integer>
+            <key>max</key>
+            <integer>300</integer>
+            <key>showValue</key>
+            <true/>
+        </dict>
+
+        <dict>
+            <key>cell</key>
+            <string>PSGroupCell</string>
+            <key>label</key>
+            <string>其他</string>
+        </dict>
+        <dict>
+            <key>cell</key>
+            <string>PSButtonCell</string>
+            <key>label</key>
+            <string>重置蓝点位置</string>
+            <key>action</key>
+            <string>resetDotPosition</string>
+        </dict>
+    </array>
+    <key>title</key>
+    <string>双击圆点</string>
+</dict>
+</plist>

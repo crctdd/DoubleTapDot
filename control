@@ -1,0 +1,9 @@
+Package: com.crctdd.doubletapdot
+Name: 双击圆点
+Version: 0.0.1
+Architecture: iphoneos-arm
+Description: 全局悬浮蓝点，单击蓝点模拟双击，长按一秒拖动并记住位置。
+Maintainer: crctdd
+Author: crctdd
+Section: Tweaks
+Depends: mobilesubstrate, preferenceloader
