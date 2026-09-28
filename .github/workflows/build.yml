@@ -1,0 +1,38 @@
+name: Build DoubleTapDot
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build ${{ matrix.scheme }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme:
+          - rootless
+          - roothide
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: iossxx/theos-action@v1
+        with:
+          theos-src: https://github.com/roothide/theos
+          theos-sdks: https://github.com/theos/sdks
+
+      - name: Build package
+        run: make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=${{ matrix.scheme }}
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoubleTapDot-${{ matrix.scheme }}
+          path: packages/*.deb
+          if-no-files-found: error
