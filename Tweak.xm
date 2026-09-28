@@ -37,19 +37,18 @@
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
 
             UIWindowScene *windowScene = (UIWindowScene *)scene;
+            if (windowScene.screen != UIScreen.mainScreen) continue;
+
             if (!fallback) fallback = windowScene;
 
-            if (scene.activationState == UISceneActivationStateForegroundActive &&
-                windowScene.screen == UIScreen.mainScreen) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
                 return windowScene;
             }
-        }
 
-        for (UIWindow *existingWindow in application.windows) {
-            if (existingWindow.windowScene && existingWindow.screen == UIScreen.mainScreen) {
-                if (!fallback) fallback = existingWindow.windowScene;
+            for (UIWindow *existingWindow in windowScene.windows) {
                 if (!existingWindow.hidden && existingWindow.alpha > 0.01) {
-                    return existingWindow.windowScene;
+                    fallback = windowScene;
+                    break;
                 }
             }
         }
